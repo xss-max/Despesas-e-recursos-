@@ -34,7 +34,16 @@ import {
   PieChart as PieChartIcon,
   TrendingUp,
   Delete,
-  Search
+  Search,
+  Lock,
+  Mail,
+  User,
+  LogOut,
+  Key,
+  ShieldCheck,
+  Eye,
+  EyeOff,
+  Smartphone
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -56,6 +65,9 @@ import {
 // ============================================================================
 
 const STORAGE_KEY = 'financas_familia_v2';
+const STORAGE_USERS = 'financas_auth_users_v1';
+const STORAGE_SESSION = 'financas_auth_session_v1';
+const COPYRIGHT_NOTE = 'Este app é de produção do Engº Murilo Miranda da Silva e de uso restrito';
 
 const CATEGORIES = [
   { id: 'mercado', label: 'Mercado', icon: ShoppingBag, color: 'bg-emerald-500', hex: '#10b981', text: 'text-emerald-600', bgLight: 'bg-emerald-50' },
@@ -295,7 +307,7 @@ const INITIAL_SAMPLE_DATA = {
 };
 
 // ============================================================================
-// FUNÇÕES UTILITÁRIAS
+// UTILITÁRIOS
 // ============================================================================
 
 const formatBRL = (value) => {
@@ -328,6 +340,624 @@ const getPaymentConfig = (payId) => {
 // ============================================================================
 
 export default function App() {
+  // Controle de Sessão e Usuários
+  const [session, setSession] = useState(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_SESSION);
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  // Notificação Toast
+  const [toast, setToast] = useState(null);
+  const showToast = (message, type = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => {
+      setToast(null);
+    }, 3400);
+  };
+
+  // Suporte à instalação PWA nativa no Android
+  const [installPromptEvent, setInstallPromptEvent] = useState(null);
+  const [showInstallGuide, setShowInstallGuide] = useState(false);
+
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (e) => {
+      e.preventDefault();
+      setInstallPromptEvent(e);
+    };
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+  }, []);
+
+  const handleTriggerInstall = async () => {
+    if (installPromptEvent) {
+      installPromptEvent.prompt();
+      const choice = await installPromptEvent.userChoice;
+      if (choice.outcome === 'accepted') {
+        showToast('Aplicativo instalado com sucesso!');
+        setInstallPromptEvent(null);
+      }
+    } else {
+      setShowInstallGuide(true);
+    }
+  };
+
+  // Logout
+  const handleLogout = () => {
+    localStorage.removeItem(STORAGE_SESSION);
+    setSession(null);
+    showToast('Você saiu da sua conta.', 'info');
+  };
+
+  // Se não estiver logado, exibe a tela de Autenticação (Login / Cadastro / Recuperação)
+  if (!session) {
+    return (
+      <AuthScreen
+        onLoginSuccess={(user) => {
+          setSession(user);
+          localStorage.setItem(STORAGE_SESSION, JSON.stringify(user));
+          showToast(`Bem-vindo, ${user.name}!`);
+        }}
+        showToast={showToast}
+        onInstallClick={handleTriggerInstall}
+        showInstallGuide={showInstallGuide}
+        setShowInstallGuide={setShowInstallGuide}
+      />
+    );
+  }
+
+  return (
+    <MainApp
+      session={session}
+      onLogout={handleLogout}
+      toast={toast}
+      showToast={showToast}
+      onInstallClick={handleTriggerInstall}
+      showInstallGuide={showInstallGuide}
+      setShowInstallGuide={setShowInstallGuide}
+    />
+  );
+}
+
+// ============================================================================
+// TELA DE LOGIN / CADASTRO / RECUPERAÇÃO DE SENHA
+// ============================================================================
+
+function AuthScreen({
+  onLoginSuccess,
+  showToast,
+  onInstallClick,
+  showInstallGuide,
+  setShowInstallGuide,
+}) {
+  const [view, setView] = useState('login'); // 'login' | 'register' | 'forgot'
+  const [showPassword, setShowPassword] = useState(false);
+
+  // Formulário Login
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+
+  // Formulário Cadastro
+  const [regName, setRegName] = useState('');
+  const [regEmail, setRegEmail] = useState('');
+  const [regPassword, setRegPassword] = useState('');
+  const [regConfirmPassword, setRegConfirmPassword] = useState('');
+
+  // Formulário Recuperação
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [recoveredCode, setRecoveredCode] = useState(null);
+  const [newPassword, setNewPassword] = useState('');
+
+  // Obtém lista de usuários salvos
+  const getUsers = () => {
+    try {
+      const saved = localStorage.getItem(STORAGE_USERS);
+      if (saved) return JSON.parse(saved);
+    } catch (e) {
+      console.error(e);
+    }
+    // Usuário padrão inicial (Engº Murilo)
+    const initialUsers = [
+      {
+        id: 'user-murilo',
+        name: 'Murilo Miranda da Silva',
+        email: 'murilo@eng.com',
+        password: 'admin',
+      },
+    ];
+    localStorage.setItem(STORAGE_USERS, JSON.stringify(initialUsers));
+    return initialUsers;
+  };
+
+  const saveUsers = (users) => {
+    localStorage.setItem(STORAGE_USERS, JSON.stringify(users));
+  };
+
+  // Login
+  const handleLogin = (e) => {
+    e.preventDefault();
+    const users = getUsers();
+    const user = users.find(
+      (u) =>
+        u.email.trim().toLowerCase() === loginEmail.trim().toLowerCase() &&
+        u.password === loginPassword
+    );
+
+    if (user) {
+      onLoginSuccess(user);
+    } else {
+      showToast('E-mail ou senha incorretos.', 'error');
+    }
+  };
+
+  // Cadastro
+  const handleRegister = (e) => {
+    e.preventDefault();
+    if (!regName.trim() || !regEmail.trim() || !regPassword) {
+      showToast('Preencha todos os campos.', 'error');
+      return;
+    }
+    if (regPassword.length < 4) {
+      showToast('A senha deve ter pelo menos 4 caracteres.', 'error');
+      return;
+    }
+    if (regPassword !== regConfirmPassword) {
+      showToast('As senhas não coincidem.', 'error');
+      return;
+    }
+
+    const users = getUsers();
+    const exists = users.some(
+      (u) => u.email.trim().toLowerCase() === regEmail.trim().toLowerCase()
+    );
+    if (exists) {
+      showToast('Este e-mail já está cadastrado.', 'error');
+      return;
+    }
+
+    const newUser = {
+      id: `user-${Date.now()}`,
+      name: regName.trim(),
+      email: regEmail.trim().toLowerCase(),
+      password: regPassword,
+    };
+
+    saveUsers([...users, newUser]);
+    showToast('Conta criada com sucesso!');
+    onLoginSuccess(newUser);
+  };
+
+  // Recuperação de Senha
+  const handleForgot = (e) => {
+    e.preventDefault();
+    const users = getUsers();
+    const user = users.find(
+      (u) => u.email.trim().toLowerCase() === forgotEmail.trim().toLowerCase()
+    );
+
+    if (!user) {
+      showToast('E-mail não encontrado no sistema.', 'error');
+      return;
+    }
+
+    // Gera um código de segurança de 6 dígitos para redefinir na hora
+    const code = Math.floor(100000 + Math.random() * 900000);
+    setRecoveredCode({ email: user.email, code });
+    showToast(`Código de recuperação gerado: ${code}`, 'info');
+  };
+
+  const handleResetPassword = (e) => {
+    e.preventDefault();
+    if (!newPassword || newPassword.length < 4) {
+      showToast('Digite uma nova senha de no mínimo 4 caracteres.', 'error');
+      return;
+    }
+
+    const users = getUsers();
+    const updated = users.map((u) =>
+      u.email === recoveredCode.email ? { ...u, password: newPassword } : u
+    );
+    saveUsers(updated);
+    showToast('Senha redefinida com sucesso! Faça login.');
+    setView('login');
+    setRecoveredCode(null);
+    setLoginEmail(recoveredCode.email);
+    setLoginPassword('');
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col justify-between font-sans selection:bg-purple-300 relative px-4 py-6">
+      {/* Botão de Instalar no Celular */}
+      <div className="w-full max-w-sm mx-auto flex justify-end">
+        <button
+          onClick={onInstallClick}
+          className="bg-amber-400 hover:bg-amber-300 text-purple-950 text-xs font-black px-3.5 py-2 rounded-2xl flex items-center gap-1.5 shadow-md active:scale-95 transition"
+        >
+          <Smartphone className="w-4 h-4" />
+          Baixar no Celular
+        </button>
+      </div>
+
+      <div className="w-full max-w-sm mx-auto my-auto space-y-6">
+        {/* LOGO E TÍTULO */}
+        <div className="text-center space-y-2">
+          <div className="w-16 h-16 mx-auto rounded-3xl bg-gradient-to-br from-amber-400 via-amber-500 to-yellow-600 flex items-center justify-center shadow-lg shadow-amber-500/20 ring-4 ring-purple-900/50">
+            <Wallet className="w-9 h-9 text-purple-950" />
+          </div>
+          <h1 className="text-2xl font-black text-white tracking-tight">Finanças em Família</h1>
+          <p className="text-xs text-purple-300 font-medium">
+            Gestão patrimonial, cartões e despesas familiares
+          </p>
+        </div>
+
+        {/* CARD PRINCIPAL DE AUTENTICAÇÃO */}
+        <div className="bg-slate-800/90 border border-purple-900/60 rounded-3xl p-6 shadow-2xl backdrop-blur-md">
+          {/* ============================================================== */}
+          {/* TELA DE LOGIN */}
+          {/* ============================================================== */}
+          {view === 'login' && (
+            <form onSubmit={handleLogin} className="space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-700/60 pb-3">
+                <h2 className="text-base font-extrabold text-white flex items-center gap-2">
+                  <Lock className="w-4 h-4 text-amber-400" />
+                  Acesso ao Sistema
+                </h2>
+                <span className="text-[10px] uppercase font-black px-2 py-0.5 rounded bg-purple-950 text-amber-300 border border-amber-400/30">
+                  Restrito
+                </span>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-300 mb-1">E-mail</label>
+                <div className="relative">
+                  <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="email"
+                    required
+                    placeholder="seu.email@exemplo.com"
+                    value={loginEmail}
+                    onChange={(e) => setLoginEmail(e.target.value)}
+                    className="w-full bg-slate-900/80 border border-slate-700 rounded-2xl pl-10 pr-3.5 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-600"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs font-bold text-slate-300">Senha</label>
+                  <button
+                    type="button"
+                    onClick={() => setView('forgot')}
+                    className="text-[11px] text-amber-300 hover:underline font-semibold"
+                  >
+                    Esqueceu a senha?
+                  </button>
+                </div>
+                <div className="relative">
+                  <Key className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    required
+                    placeholder="••••••••"
+                    value={loginPassword}
+                    onChange={(e) => setLoginPassword(e.target.value)}
+                    className="w-full bg-slate-900/80 border border-slate-700 rounded-2xl pl-10 pr-10 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-600"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200"
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                className="w-full bg-gradient-to-r from-amber-400 to-yellow-500 hover:from-amber-300 hover:to-yellow-400 text-purple-950 font-black py-3.5 rounded-2xl text-sm shadow-lg shadow-amber-500/20 active:scale-95 transition mt-2"
+              >
+                Entrar no App
+              </button>
+
+              <div className="pt-3 text-center border-t border-slate-700/60">
+                <p className="text-xs text-slate-400">
+                  Ainda não tem acesso?{' '}
+                  <button
+                    type="button"
+                    onClick={() => setView('register')}
+                    className="text-amber-300 font-extrabold hover:underline"
+                  >
+                    Cadastre-se aqui
+                  </button>
+                </p>
+              </div>
+            </form>
+          )}
+
+          {/* ============================================================== */}
+          {/* TELA DE CADASTRO */}
+          {/* ============================================================== */}
+          {view === 'register' && (
+            <form onSubmit={handleRegister} className="space-y-3.5">
+              <div className="flex items-center justify-between border-b border-slate-700/60 pb-3">
+                <h2 className="text-base font-extrabold text-white flex items-center gap-2">
+                  <User className="w-4 h-4 text-amber-400" />
+                  Novo Cadastro
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => setView('login')}
+                  className="text-xs text-slate-400 hover:text-white"
+                >
+                  Voltar
+                </button>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-300 mb-1">Nome Completo</label>
+                <div className="relative">
+                  <User className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    required
+                    placeholder="Seu nome ou apelido"
+                    value={regName}
+                    onChange={(e) => setRegName(e.target.value)}
+                    className="w-full bg-slate-900/80 border border-slate-700 rounded-2xl pl-10 pr-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-600"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-300 mb-1">E-mail</label>
+                <div className="relative">
+                  <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="email"
+                    required
+                    placeholder="seu.email@exemplo.com"
+                    value={regEmail}
+                    onChange={(e) => setRegEmail(e.target.value)}
+                    className="w-full bg-slate-900/80 border border-slate-700 rounded-2xl pl-10 pr-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-600"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs font-bold text-slate-300 mb-1">Senha</label>
+                  <input
+                    type="password"
+                    required
+                    placeholder="••••••"
+                    value={regPassword}
+                    onChange={(e) => setRegPassword(e.target.value)}
+                    className="w-full bg-slate-900/80 border border-slate-700 rounded-2xl px-3 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-600"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-300 mb-1">Confirmar</label>
+                  <input
+                    type="password"
+                    required
+                    placeholder="••••••"
+                    value={regConfirmPassword}
+                    onChange={(e) => setRegConfirmPassword(e.target.value)}
+                    className="w-full bg-slate-900/80 border border-slate-700 rounded-2xl px-3 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-600"
+                  />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                className="w-full bg-gradient-to-r from-amber-400 to-yellow-500 hover:from-amber-300 hover:to-yellow-400 text-purple-950 font-black py-3 rounded-2xl text-sm shadow-md active:scale-95 transition mt-2"
+              >
+                Criar Conta e Acessar
+              </button>
+
+              <div className="pt-2 text-center border-t border-slate-700/60">
+                <button
+                  type="button"
+                  onClick={() => setView('login')}
+                  className="text-xs text-purple-300 hover:underline"
+                >
+                  Já tenho conta? Fazer login
+                </button>
+              </div>
+            </form>
+          )}
+
+          {/* ============================================================== */}
+          {/* TELA DE RECUPERAÇÃO DE SENHA */}
+          {/* ============================================================== */}
+          {view === 'forgot' && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-700/60 pb-3">
+                <h2 className="text-base font-extrabold text-white flex items-center gap-2">
+                  <Key className="w-4 h-4 text-amber-400" />
+                  Recuperar Senha
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setView('login');
+                    setRecoveredCode(null);
+                  }}
+                  className="text-xs text-slate-400 hover:text-white"
+                >
+                  Voltar
+                </button>
+              </div>
+
+              {!recoveredCode ? (
+                <form onSubmit={handleForgot} className="space-y-3">
+                  <p className="text-xs text-slate-300 leading-relaxed">
+                    Informe seu e-mail cadastrado. Um código de segurança será gerado para que você redefina sua senha.
+                  </p>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-300 mb-1">E-mail Cadastrado</label>
+                    <div className="relative">
+                      <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="email"
+                        required
+                        placeholder="seu.email@exemplo.com"
+                        value={forgotEmail}
+                        onChange={(e) => setForgotEmail(e.target.value)}
+                        className="w-full bg-slate-900/80 border border-slate-700 rounded-2xl pl-10 pr-3.5 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-600"
+                      />
+                    </div>
+                  </div>
+                  <button
+                    type="submit"
+                    className="w-full bg-purple-700 hover:bg-purple-600 text-white font-extrabold py-3.5 rounded-2xl text-sm shadow active:scale-95 transition"
+                  >
+                    Gerar Código de Recuperação
+                  </button>
+                </form>
+              ) : (
+                <form onSubmit={handleResetPassword} className="space-y-3">
+                  <div className="p-3 bg-amber-400/15 border border-amber-400/40 rounded-2xl text-xs text-amber-300">
+                    <p className="font-bold">Código gerado para {recoveredCode.email}:</p>
+                    <p className="text-xl font-black text-amber-400 tracking-widest mt-1">
+                      {recoveredCode.code}
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-300 mb-1">
+                      Digite sua Nova Senha
+                    </label>
+                    <input
+                      type="password"
+                      required
+                      placeholder="Mínimo 4 caracteres"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      className="w-full bg-slate-900/80 border border-slate-700 rounded-2xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-600"
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-black py-3.5 rounded-2xl text-sm shadow active:scale-95 transition"
+                  >
+                    Salvar Nova Senha
+                  </button>
+                </form>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* NOTA DE RODAPÉ OBRIGATÓRIA */}
+      <footer className="w-full text-center pt-4 pb-2">
+        <p className="text-[11px] text-slate-400 font-semibold tracking-wide flex items-center justify-center gap-1.5">
+          <ShieldCheck className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+          <span>{COPYRIGHTNOTE_OR_TEXT(COPYRIGHT_NOTE)}</span>
+        </p>
+      </footer>
+
+      {/* Modal Guia de Instalação no Android */}
+      {showInstallGuide && (
+        <InstallGuideModal onClose={() => setShowInstallGuide(false)} />
+      )}
+    </div>
+  );
+}
+
+function COPYRIGHTNOTE_OR_TEXT(text) {
+  return text;
+}
+
+// ============================================================================
+// GUIA DE INSTALAÇÃO NO ANDROID (PWA NATIVO)
+// ============================================================================
+
+function InstallGuideModal({ onClose }) {
+  return (
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+      <div className="bg-slate-900 border border-purple-800 rounded-3xl p-6 max-w-sm w-full space-y-4 text-white shadow-2xl">
+        <div className="flex items-center justify-between">
+          <h3 className="text-base font-extrabold flex items-center gap-2">
+            <Smartphone className="w-5 h-5 text-amber-400" />
+            Como Baixar no Android
+          </h3>
+          <button
+            onClick={onClose}
+            className="p-1.5 bg-slate-800 text-slate-400 hover:text-white rounded-full"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="space-y-3 text-xs text-slate-300 leading-relaxed">
+          <div className="flex gap-2.5 items-start">
+            <span className="w-5 h-5 rounded-full bg-amber-400 text-purple-950 font-black flex items-center justify-center shrink-0">
+              1
+            </span>
+            <p>
+              Abra este link no navegador <strong>Google Chrome</strong> do seu celular Android.
+            </p>
+          </div>
+
+          <div className="flex gap-2.5 items-start">
+            <span className="w-5 h-5 rounded-full bg-amber-400 text-purple-950 font-black flex items-center justify-center shrink-0">
+              2
+            </span>
+            <p>
+              Toque no menu de <strong>três pontinhos (⋮)</strong> no canto superior direito do Chrome.
+            </p>
+          </div>
+
+          <div className="flex gap-2.5 items-start">
+            <span className="w-5 h-5 rounded-full bg-amber-400 text-purple-950 font-black flex items-center justify-center shrink-0">
+              3
+            </span>
+            <p>
+              Toque em <strong>"Instalar aplicativo"</strong> ou <strong>"Adicionar à tela inicial"</strong>.
+            </p>
+          </div>
+
+          <div className="flex gap-2.5 items-start">
+            <span className="w-5 h-5 rounded-full bg-amber-400 text-purple-950 font-black flex items-center justify-center shrink-0">
+              4
+            </span>
+            <p>
+              Pronto! O app será adicionado com ícone próprio na sua tela e abrirá em tela cheia como qualquer app nativo.
+            </p>
+          </div>
+        </div>
+
+        <button
+          onClick={onClose}
+          className="w-full py-3 bg-gradient-to-r from-amber-400 to-yellow-500 text-purple-950 font-black rounded-2xl text-xs active:scale-95 shadow"
+        >
+          Entendido
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// APLICAÇÃO FINANCEIRA COMPLETA (MAIN APP)
+// ============================================================================
+
+function MainApp({
+  session,
+  onLogout,
+  toast,
+  showToast,
+  onInstallClick,
+  showInstallGuide,
+  setShowInstallGuide,
+}) {
   const [data, setData] = useState(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY) || localStorage.getItem('financas_familia_v1');
@@ -346,7 +976,6 @@ export default function App() {
   });
 
   const [activeTab, setActiveTab] = useState('resumo');
-  const [toast, setToast] = useState(null);
 
   const [quickLaunchModal, setQuickLaunchModal] = useState({ open: false, preset: null });
   const [presetModal, setPresetModal] = useState({ open: false, preset: null });
@@ -364,7 +993,7 @@ export default function App() {
     description: '',
     category: 'mercado',
     date: new Date().toISOString().split('T')[0],
-    member: 'Família',
+    member: session?.name?.split(' ')[0] || 'Família',
     paymentMethod: 'credito',
     bankId: '',
   });
@@ -384,13 +1013,6 @@ export default function App() {
       console.error('Erro ao salvar no localStorage:', e);
     }
   }, [data]);
-
-  const showToast = (message, type = 'success') => {
-    setToast({ message, type });
-    setTimeout(() => {
-      setToast(null);
-    }, 3200);
-  };
 
   const totals = useMemo(() => {
     const totalBalance = data.banks.reduce((acc, b) => acc + (Number(b.balance) || 0), 0);
@@ -572,7 +1194,7 @@ export default function App() {
       description: finalDescription,
       category: category || 'outros',
       date: date || new Date().toISOString().split('T')[0],
-      member: member || 'Família',
+      member: member || session?.name?.split(' ')[0] || 'Família',
       paymentMethod: paymentMethod || 'credito',
       bankId,
     };
@@ -643,7 +1265,7 @@ export default function App() {
       description: preset.label,
       category: preset.category,
       date: new Date().toISOString().split('T')[0],
-      member: 'Família',
+      member: session?.name?.split(' ')[0] || 'Família',
       paymentMethod: preset.paymentMethod,
       bankId: targetBankId,
     });
@@ -771,7 +1393,7 @@ export default function App() {
       description: description.trim() || 'Depósito / Entrada',
       category: 'outros',
       date: new Date().toISOString().split('T')[0],
-      member: 'Família',
+      member: session?.name?.split(' ')[0] || 'Família',
       paymentMethod: 'pix',
       bankId,
     };
@@ -808,7 +1430,7 @@ export default function App() {
           description: `Pagamento Fatura Cartão ${bank.name}`,
           category: 'outros',
           date: new Date().toISOString().split('T')[0],
-          member: 'Família',
+          member: session?.name?.split(' ')[0] || 'Família',
           paymentMethod: 'debito',
           bankId: bank.id,
         };
@@ -886,7 +1508,7 @@ export default function App() {
       description: `Assinatura: ${sub.name}`,
       category: sub.category || 'outros',
       date: new Date().toISOString().split('T')[0],
-      member: 'Família',
+      member: session?.name?.split(' ')[0] || 'Família',
       paymentMethod: sub.paymentMethod,
       bankId: bank.id,
     };
@@ -995,39 +1617,51 @@ export default function App() {
           </div>
         )}
 
-        <header className="bg-gradient-to-br from-purple-900 via-purple-800 to-indigo-950 text-white pt-5 pb-6 px-5 rounded-b-3xl shadow-lg border-b-2 border-amber-400/60">
+        {/* HEADER SUPERIOR */}
+        <header className="bg-gradient-to-br from-purple-900 via-purple-800 to-indigo-950 text-white pt-4 pb-5 px-5 rounded-b-3xl shadow-lg border-b-2 border-amber-400/60">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-amber-300 text-xs font-bold uppercase tracking-wider">
-                Controle Familiar
-              </p>
-              <h1 className="text-xl font-bold tracking-tight flex items-center gap-2">
+              <div className="flex items-center gap-1.5">
+                <span className="text-amber-300 text-[10px] font-black uppercase tracking-wider">
+                  Usuário: {session.name}
+                </span>
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+              </div>
+              <h1 className="text-lg font-black tracking-tight flex items-center gap-2 mt-0.5">
                 <Wallet className="w-5 h-5 text-amber-400" />
                 Finanças em Família
               </h1>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
               <button
-                onClick={() => setQuickLaunchModal({ open: true, preset: null })}
-                className="px-3 py-2 bg-gradient-to-r from-amber-400 to-yellow-500 hover:from-amber-300 hover:to-yellow-400 text-purple-950 font-extrabold text-xs rounded-xl shadow-md active:scale-95 transition flex items-center gap-1"
+                onClick={onInstallClick}
+                title="Baixar / Instalar aplicativo no celular"
+                className="px-2.5 py-1.5 bg-gradient-to-r from-amber-400 to-yellow-500 text-purple-950 font-black text-[11px] rounded-xl shadow active:scale-95 transition flex items-center gap-1"
               >
-                <Zap className="w-3.5 h-3.5 fill-purple-950" />
-                Rápido
+                <Smartphone className="w-3.5 h-3.5" />
+                App
               </button>
               <button
                 onClick={handleExportJSON}
-                title="Exportar Backup (Compartilhar)"
-                className="p-2.5 bg-purple-950/60 hover:bg-purple-950 border border-purple-700/50 active:scale-95 rounded-xl transition"
+                title="Exportar Backup"
+                className="p-2 bg-purple-950/60 hover:bg-purple-950 border border-purple-700/50 active:scale-95 rounded-xl transition"
               >
-                <Download className="w-4 h-4 text-amber-200" />
+                <Download className="w-3.5 h-3.5 text-amber-200" />
               </button>
               <button
                 onClick={() => fileInputRef.current?.click()}
                 title="Importar Backup"
-                className="p-2.5 bg-purple-950/60 hover:bg-purple-950 border border-purple-700/50 active:scale-95 rounded-xl transition"
+                className="p-2 bg-purple-950/60 hover:bg-purple-950 border border-purple-700/50 active:scale-95 rounded-xl transition"
               >
-                <Upload className="w-4 h-4 text-amber-200" />
+                <Upload className="w-3.5 h-3.5 text-amber-200" />
+              </button>
+              <button
+                onClick={onLogout}
+                title="Sair da conta"
+                className="p-2 bg-rose-950/60 hover:bg-rose-900 border border-rose-700/50 active:scale-95 rounded-xl transition text-rose-300"
+              >
+                <LogOut className="w-3.5 h-3.5" />
               </button>
               <input
                 ref={fileInputRef}
@@ -1040,14 +1674,14 @@ export default function App() {
           </div>
 
           {data.isSample && (
-            <div className="mt-4 bg-purple-950/70 border border-amber-400/40 rounded-2xl p-3 flex items-center justify-between gap-2">
+            <div className="mt-3 bg-purple-950/70 border border-amber-400/40 rounded-2xl p-2.5 flex items-center justify-between gap-2">
               <div className="flex items-center gap-2 text-xs text-purple-100">
                 <Sparkles className="w-4 h-4 text-amber-300 shrink-0" />
                 <span>Usando dados de exemplo para teste.</span>
               </div>
               <button
                 onClick={handleClearSampleData}
-                className="px-3 py-1.5 bg-amber-400 text-purple-950 text-xs font-extrabold rounded-xl shadow-sm active:scale-95 shrink-0"
+                className="px-2.5 py-1 bg-amber-400 text-purple-950 text-xs font-black rounded-xl shadow-sm active:scale-95 shrink-0"
               >
                 Limpar exemplos
               </button>
@@ -1055,9 +1689,11 @@ export default function App() {
           )}
         </header>
 
+        {/* CONTEÚDO PRINCIPAL */}
         <main className="flex-1 px-4 pt-4 space-y-5">
           {activeTab === 'resumo' && (
             <>
+              {/* ATALHOS 1-TOQUE */}
               <div className="bg-white rounded-3xl p-4 shadow-sm border border-purple-100/80">
                 <div className="flex items-center justify-between mb-2.5">
                   <div className="flex items-center gap-1.5">
@@ -1135,6 +1771,7 @@ export default function App() {
                 </div>
               </div>
 
+              {/* CARD DE SALDO TOTAL */}
               <div className="bg-white rounded-3xl p-5 shadow-sm border border-purple-100/80">
                 <div className="flex items-center justify-between mb-1">
                   <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
@@ -1263,6 +1900,7 @@ export default function App() {
                 </div>
               </div>
 
+              {/* CARROSSEL DE BANCOS */}
               <div>
                 <div className="flex items-center justify-between mb-2.5 px-1">
                   <h2 className="text-sm font-bold text-slate-700">Meus Bancos e Cartões</h2>
@@ -1315,6 +1953,7 @@ export default function App() {
                 </div>
               </div>
 
+              {/* GASTOS POR CATEGORIA */}
               <div className="bg-white rounded-3xl p-5 shadow-sm border border-purple-100/80">
                 <div className="flex items-center justify-between mb-3">
                   <h2 className="text-sm font-bold text-slate-800">Gastos do Mês por Categoria</h2>
@@ -1362,6 +2001,7 @@ export default function App() {
                 )}
               </div>
 
+              {/* ÚLTIMOS LANÇAMENTOS */}
               <div className="bg-white rounded-3xl p-5 shadow-sm border border-purple-100/80">
                 <div className="flex items-center justify-between mb-3">
                   <h2 className="text-sm font-bold text-slate-800">Últimos Lançamentos</h2>
@@ -1569,11 +2209,6 @@ export default function App() {
                     );
                   })}
                 </div>
-                <p className="text-[11px] text-slate-400 mt-1.5">
-                  {expenseForm.paymentMethod === 'credito'
-                    ? '• Será somado à fatura aberta do cartão escolhido.'
-                    : '• Será descontado imediatamente do saldo da conta escolhida.'}
-                </p>
               </div>
 
               <div>
@@ -1707,11 +2342,8 @@ export default function App() {
                     </h3>
                   </div>
                 </div>
-                <p className="text-[11px] text-slate-400 mb-3">
-                  Comparativo dos últimos 6 meses entre entradas, gastos totais e cartão de crédito
-                </p>
 
-                <div className="h-60 w-full">
+                <div className="h-60 w-full mt-3">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart
                       data={totals.monthlyComparison}
@@ -1786,7 +2418,7 @@ export default function App() {
 
                 {totals.byCategory.length === 0 ? (
                   <p className="text-xs text-slate-400 text-center py-8">
-                    Registre gastos neste mês para visualizar o gráfico de categorias.
+                    Registre gastos neste mês para visualizar o gráfico.
                   </p>
                 ) : (
                   <>
@@ -1844,150 +2476,6 @@ export default function App() {
                     </div>
                   </>
                 )}
-              </div>
-
-              <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100">
-                <div className="flex items-center justify-between mb-1">
-                  <div className="flex items-center gap-2">
-                    <CreditCard className="w-4 h-4 text-purple-600" />
-                    <h3 className="text-sm font-extrabold text-slate-800">
-                      Utilização por Banco (Débito/Pix vs Crédito)
-                    </h3>
-                  </div>
-                </div>
-                <p className="text-[11px] text-slate-400 mb-3">
-                  Comparativo entre gastos à vista no mês e fatura atual do cartão
-                </p>
-
-                <div className="h-56 w-full">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart
-                      data={totals.byBankUsage}
-                      margin={{ top: 10, right: 10, left: -15, bottom: 0 }}
-                    >
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                      <XAxis
-                        dataKey="name"
-                        tick={{ fontSize: 11, fontWeight: 700, fill: '#475569' }}
-                        axisLine={false}
-                        tickLine={false}
-                      />
-                      <YAxis
-                        tick={{ fontSize: 10, fill: '#94a3b8' }}
-                        axisLine={false}
-                        tickLine={false}
-                      />
-                      <Tooltip
-                        formatter={(value) => formatBRL(value)}
-                        contentStyle={{
-                          borderRadius: '14px',
-                          border: 'none',
-                          boxShadow: '0 10px 25px rgba(0,0,0,0.1)',
-                          fontSize: '12px',
-                        }}
-                      />
-                      <Bar
-                        dataKey="debitoPix"
-                        name="Débito / Pix (Mês)"
-                        fill="#f59e0b"
-                        radius={[6, 6, 0, 0]}
-                      />
-                      <Bar
-                        dataKey="faturaCredito"
-                        name="Fatura Crédito"
-                        fill="#7e22ce"
-                        radius={[6, 6, 0, 0]}
-                      />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-
-                <div className="space-y-3 mt-4 pt-3 border-t border-slate-100">
-                  <p className="text-[11px] font-bold text-slate-500 uppercase">
-                    Comprometimento do Limite de Crédito
-                  </p>
-                  {totals.byBankUsage.map((b) => (
-                    <div key={b.id}>
-                      <div className="flex justify-between text-xs mb-1">
-                        <span className="font-bold text-slate-700">{b.name}</span>
-                        <span className="text-slate-600 font-semibold">
-                          {formatBRL(b.faturaCredito)} / {formatBRL(b.limiteTotal)} ({b.usoPercentual}%)
-                        </span>
-                      </div>
-                      <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden">
-                        <div
-                          className={`h-full rounded-full transition-all ${
-                            b.usoPercentual > 80
-                              ? 'bg-rose-500'
-                              : b.usoPercentual > 50
-                              ? 'bg-amber-500'
-                              : 'bg-purple-600'
-                          }`}
-                          style={{ width: `${b.usoPercentual}%` }}
-                        />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100">
-                <div className="flex items-center gap-2 mb-1">
-                  <TrendingUp className="w-4 h-4 text-blue-600" />
-                  <h3 className="text-sm font-extrabold text-slate-800">
-                    Evolução Diária de Gastos
-                  </h3>
-                </div>
-                <p className="text-[11px] text-slate-400 mb-3">
-                  Picos de consumo ao longo dos dias deste mês
-                </p>
-
-                <div className="h-52 w-full">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart
-                      data={totals.dailyEvolution}
-                      margin={{ top: 10, right: 8, left: -18, bottom: 0 }}
-                    >
-                      <defs>
-                        <linearGradient id="colorGastos" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#7e22ce" stopOpacity={0.35} />
-                          <stop offset="95%" stopColor="#f59e0b" stopOpacity={0} />
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                      <XAxis
-                        dataKey="dia"
-                        tick={{ fontSize: 10, fill: '#64748b' }}
-                        interval={3}
-                        axisLine={false}
-                        tickLine={false}
-                      />
-                      <YAxis
-                        tick={{ fontSize: 10, fill: '#94a3b8' }}
-                        axisLine={false}
-                        tickLine={false}
-                      />
-                      <Tooltip
-                        labelFormatter={(label) => `Dia ${label}`}
-                        formatter={(value) => [formatBRL(value), 'Gasto no dia']}
-                        contentStyle={{
-                          borderRadius: '14px',
-                          border: 'none',
-                          boxShadow: '0 10px 25px rgba(0,0,0,0.1)',
-                          fontSize: '12px',
-                        }}
-                      />
-                      <Area
-                        type="monotone"
-                        dataKey="valor"
-                        stroke="#7e22ce"
-                        strokeWidth={2.5}
-                        fillOpacity={1}
-                        fill="url(#colorGastos)"
-                      />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </div>
               </div>
             </div>
           )}
@@ -2216,8 +2704,17 @@ export default function App() {
               )}
             </div>
           )}
+
+          {/* NOTA DE RODAPÉ OBRIGATÓRIA NO CANTO INFERIOR */}
+          <div className="text-center pt-6 pb-4">
+            <p className="text-[11px] text-slate-400 font-semibold flex items-center justify-center gap-1.5">
+              <ShieldCheck className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+              <span>{COPYRIGHT_NOTE}</span>
+            </p>
+          </div>
         </main>
 
+        {/* BARRA INFERIOR FIXA */}
         <nav className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md bg-white border-t border-purple-100 px-1.5 py-2 flex items-center justify-around z-40 shadow-[0_-4px_20px_rgba(0,0,0,0.05)]">
           <button
             onClick={() => setActiveTab('resumo')}
@@ -2329,6 +2826,10 @@ export default function App() {
             onClose={() => setSubModal({ open: false, sub: null })}
             onSave={handleSaveSubscription}
           />
+        )}
+
+        {showInstallGuide && (
+          <InstallGuideModal onClose={() => setShowInstallGuide(false)} />
         )}
 
         {confirmDialog.open && (

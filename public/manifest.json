@@ -1,0 +1,19 @@
+{
+  "name": "Finanças em Família",
+  "short_name": "Finanças",
+  "description": "App de controle financeiro familiar - Produção Engº Murilo Miranda da Silva",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#581c87",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "./favicon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
